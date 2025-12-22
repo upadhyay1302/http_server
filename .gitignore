@@ -1,0 +1,11 @@
+.vscode
+.DS_Store
+journal.md
+website
+
+# Future architecture (not tracked yet)
+src_reactor/
+src_reactor/build/
+
+# Build artifacts
+http_server_multithreading/build/
