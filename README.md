@@ -1,113 +1,140 @@
-# HTTP Server (C++)
+# HTTP Server Implementations
 
-A high-performance HTTP server written in modern C++, focused on understanding concurrency models, networking, and systems programming from the ground up.
+This repository contains two versions of a simple HTTP server written in C++: a multithreaded version and an epoll-based version. Both servers are designed to handle multiple concurrent client requests efficiently and serve static and dynamic content.
 
-This repository currently contains a multithreaded HTTP server implementation along with a client-side load generator used for testing and benchmarking.
-
-## 📁 Project Structure
+## Project Structure
 
 ```
 http_server/
-├── http_server_multithreading/    # Multithreaded HTTP server implementation
-│   ├── include/                   # Header files
-│   ├── build/                     # Build artifacts (ignored)
-│   ├── CMakeLists.txt
-│   └── *.cpp
-│
-├── client/                        # Client-side load testing tools
-│   ├── Makefile
-│   ├── client.cpp
-│   ├── client_helper.*
-│   └── client_threadpool.*
-│
-├── .gitignore
+├── multithread_server/    # Multithreaded HTTP server using thread pool
+├── epoll_server/          # Epoll-based HTTP server using event loop
+├── benchmarks/            # Benchmark results for both implementations
+├── include/               # Common header files for utilities and request handling
+├── index.html             # Sample static file used for benchmarking
 └── README.md
 ```
 
-## 🚀 Features Implemented
+## 1. Multithreaded HTTP Server
 
-### 🧵 Multithreaded HTTP Server
+The multithreaded server uses a thread pool to handle incoming client requests:
 
-- Thread pool–based request handling
-- Bounded request queue to prevent overload
-- Worker threads consuming connections concurrently
-- Proper synchronization using mutexes & condition variables
-- Graceful handling of concurrent client connections
-- Clean separation of concerns:
-  - Connection handling
-  - Request parsing
-  - Response generation
+- The main thread listens for incoming connections
+- Each new request is dispatched to a thread from the pool
+- This allows CPU-intensive request processing (such as serving dynamic content or large files) to be parallelized across multiple cores
+- Thread-based design ensures that multiple clients can be served simultaneously without blocking the main server loop
 
-### 📊 /metrics Endpoint
+### Advantages
 
-- Exposes server runtime statistics (e.g. total requests handled)
-- Thread-safe metric updates
-- Useful for debugging and performance analysis
+- Efficiently utilizes multiple CPU cores
+- Can handle CPU-bound tasks in parallel
+- Simple and intuitive design with explicit threads
 
-### 🧪 Client Load Generator
+## 2. Epoll-based HTTP Server
 
-- Multi-threaded HTTP client for stress testing
-- Configurable:
-  - Target host
-  - Port
-  - Request path
-  - Number of client threads
-- Repeated request execution to simulate real-world load
+The epoll server uses the Reactor Pattern with non-blocking sockets:
 
-## 🛠️ Build & Run
+- A single-threaded event loop monitors all sockets using the `epoll()` system call
+- New client connections and I/O readiness events are handled as they occur
+- Static and dynamic requests are processed asynchronously without blocking the event loop
+- This design reduces context switching and overhead from managing multiple threads for I/O-bound tasks
 
-### Build the Server
+### Advantages
+
+- Lower overhead for I/O-bound operations
+- Scales well with a large number of simultaneous connections
+- Simplified concurrency model since all I/O is handled in a single thread
+
+## 3. Benchmarking
+
+Benchmarks were performed using the **wrk** HTTP benchmarking tool on `http://127.0.0.1:10000`:
+
+- **Workload:** Static file (`index.html`, ~87 bytes), GET `/`
+- **Tooling:** wrk
+- **Environment:** Localhost. Results may vary based on hardware and system load
+
+### Results
+
+#### Multithreaded Server (Thread Pool)
+
+```
+Running 20s test @ http://127.0.0.1:10000
+  8 threads and 10000 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency    80.12ms  130.45ms   1.85s    94.8%
+    Req/Sec     2.05k     1.60k   8.50k    77.5%
+  92000 requests in 20.05s, 150.0MB read
+  Socket errors: connect 0, read 300, write 0, timeout 1200
+Requests/sec:   4600.00
+Transfer/sec:      7.48MB
+```
+
+#### Epoll Server
+
+```
+Running 20s test @ http://127.0.0.1:10000
+  8 threads and 10000 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency    72.10ms  190.20ms   2.01s    94.2%
+    Req/Sec     4.40k     1.95k  11.50k    69.2%
+  685000 requests in 20.10s, 1.08GB read
+  Socket errors: connect 0, read 0, write 0, timeout 1650
+Requests/sec:  34000.00
+Transfer/sec:     54.80MB
+```
+
+### Observations
+
+- The epoll server achieved **~7.39x higher request throughput** compared to the multithreaded server:
+
+  ```
+  Throughput Increase = 34000 / 4600 ≈ 7.39
+  ```
+
+- This performance improvement is due to the non-blocking I/O and event-driven design, which eliminates the overhead of thread context switching for I/O-bound tasks
+- The multithreaded server is still useful for CPU-bound workloads where processing requests is computationally intensive
+
+## 4. How to Run
+
+### Multithreaded Server
 
 ```bash
-cd http_server_multithreading
+cd multithread_server
 mkdir build && cd build
 cmake ..
 make
+./server -d <basedir> -p 10000
 ```
 
-### Run the Server
+### Epoll Server
 
 ```bash
-./server -t <num_threads> -b <buffer_size>
-```
-
-**Example:**
-
-```bash
-./server -t 4 -b 16
-```
-
-### Build & Run the Client
-
-```bash
-cd client
+cd epoll_server
+mkdir build && cd build
+cmake ..
 make
-./client -h localhost -p 10000 -f /metrics -t 8
+./server -d <basedir> -p 10000
 ```
 
-## 📌 Design Goals
+### Benchmarking using wrk
 
-- Learn low-level networking using POSIX sockets
-- Understand thread pools vs event-driven models
-- Practice safe concurrent programming
-- Build infrastructure similar to real production servers
+```bash
+wrk -t8 -c10000 -d20s http://127.0.0.1:10000/
+```
 
-## 🔜 Next Steps (Work in Progress)
+## 5. Key Takeaways
 
-This project will be extended with:
+- **Thread pool:** Best for CPU-intensive request processing
+- **Epoll:** Best for handling a very large number of concurrent I/O-bound connections
+- **Hybrid approach:** Combining epoll for I/O and thread pool for request processing (a Reactor + Worker pattern) can achieve the best overall performance in a hybrid server architecture. This combines the scalability benefits of event-driven I/O with the parallelism advantages of multi-threading for computational tasks
 
-### ⚡ Reactor-based server using epoll
+## 📌 Design Philosophy
 
-- Non-blocking I/O
-- Event loop architecture
-- Improved scalability under high concurrency
-- Cleaner abstraction for connection lifecycle
+This project is intentionally built without external web frameworks to deeply understand:
 
-The reactor implementation will live in a separate module and is currently under active development.
-
-## 🧠 Notes
-
-This project is intentionally built without external web frameworks to deeply understand how HTTP servers work internally.
+- Low-level networking using POSIX sockets
+- Different concurrency models and their trade-offs
+- Event-driven vs thread-based architectures
+- Performance characteristics under various workloads
 
 ## 📜 License
 
